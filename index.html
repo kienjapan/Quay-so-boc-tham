@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bốc Thăm Phân Công Nhiệm Vụ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- Tích hợp thư viện Supabase Online -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background-color: #2c3034; color: #f8f9fa; font-family: 'Segoe UI', sans-serif; padding-bottom: 50px; }
+        .card-custom { background-color: #3d4246; border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); margin-top: 25px; }
+        .card-header-custom { background-color: #4e545c; border-bottom: 1px solid #5c636a; border-top-left-radius: 12px !important; border-top-right-radius: 12px !important; padding: 15px 20px; }
+        .btn-yellow { background-color: #e9db55; color: #212529; font-weight: 600; }
+        .btn-yellow:hover { background-color: #d8ca44; }
+        .text-label-yellow { color: #e9db55 !important; font-weight: bold; }
+        .lucky-number-display { font-size: 5rem; font-weight: 800; color: #e9db55; text-shadow: 0 0 20px rgba(233,219,85,0.4); min-height: 120px; display: flex; align-items: center; justify-content: center; border: 3px dashed #4e545c; border-radius: 15px; background-color: #2c3034; }
+        .table-dark-custom { --bs-table-bg: #3d4246; color: #f8f9fa; }
+        .live-row { border-left: 4px solid #e9db55; }
+        .capture-header { padding: 15px; background-color: #2c3034; border-radius: 8px; border: 1px solid #4e545c; }
+        
+        .waiting-summary-box {
+            background: linear-gradient(135deg, #1e3d2f 0%, #11261c 100%);
+            border: 2px dashed #3ca36e;
+            border-radius: 10px;
+            animation: pulse-glow 1.5s infinite alternate;
+        }
+        @keyframes pulse-glow {
+            from { box-shadow: 0 0 8px rgba(60,163,110,0.2); opacity: 0.8; }
+            to { box-shadow: 0 0 20px rgba(60,163,110,0.6); opacity: 1; }
+        }
+        .fade-in-smooth {
+            animation: fadeIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .admin-section { display: none; } /* Ẩn mặc định, hiện bằng URL chứa ?admin=true */
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="text-center mt-4">
+        <h2 class="fw-bold text-warning"><i class="fa-solid fa-dice me-2"></i>HỆ THỐNG BỐC THĂM QUAY SỐ ONLINE</h2>
+    </div>
+    
+    <!-- Mục Admin quản lý cấu hình phiên -->
+    <div id="admin_panel" class="card card-custom admin-section">
+        <div class="card-header-custom"><h5 class="m-0 text-white"><i class="fa-solid fa-gear me-2"></i>Bảng Điều Hành Admin</h5></div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label text-label-yellow">Tên phiên bốc thăm:</label>
+                    <input type="text" id="session_name" class="form-control bg-dark text-white border-secondary">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label text-label-yellow">Kiểu xếp hạng:</label>
+                    <select id="sort_mode" class="form-select bg-dark text-white border-secondary">
+                        <option value="asc">Số nhỏ nhất → Làm nhiệm vụ đầu tiên</option>
+                        <option value="desc">Số lớn nhất → Làm nhiệm vụ đầu tiên</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label text-label-yellow">Cách thức bốc thăm:</label>
+                    <input type="text" id="display_rule_input" class="form-control bg-dark text-white border-secondary" placeholder="Ví dụ: Bốc thăm từ 1~100...">
+                </div>
+                <div class="col-md-12 mb-3">
+                    <label class="form-label text-label-yellow">Danh sách nhiệm vụ (Mỗi dòng 1 nhiệm vụ):</label>
+                    <textarea id="tasks" class="form-control bg-dark text-white border-secondary" rows="4" placeholder="Nhập các nhiệm vụ phân công..."></textarea>
+                </div>
+            </div>
+            <button id="btn_save" class="btn btn-yellow px-4"><i class="fa-solid fa-floppy-disk me-2"></i>Lưu cấu hình</button>
+            <button id="btn_reset" class="btn btn-danger px-4 ms-2"><i class="fa-solid fa-rotate me-2"></i>Reset làm mới</button>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-4 mb-4">
+            <div class="card card-custom h-100">
+                <div class="card-header-custom"><h5 class="m-0 text-white"><i class="fa-solid fa-play me-2"></i>Lượt Quay Của Bạn</h5></div>
+                <div class="card-body d-flex flex-column justify-content-between">
+                    <div>
+                        <label class="form-label text-label-yellow">Nhập tên của bạn:</label>
+                        <input type="text" id="user_name" class="form-control form-control-lg bg-dark text-white border-secondary" placeholder="Nhập tên...">
+                    </div>
+                    <div class="my-4 text-center">
+                        <div id="lucky_number" class="lucky-number-display">--</div>
+                    </div>
+                    <button id="btn_spin" class="btn btn-yellow btn-lg w-100 py-3 fw-bold"><i class="fa-solid fa-dice me-2"></i>BẤM ĐỂ QUAY SỐ</button>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8 mb-4">
+            <div class="card card-custom h-100" id="capture_area" style="padding: 15px; background-color: #3d4246;"> 
+                <div class="capture-header text-center mb-3">
+                    <h3 id="display_session_name" class="fw-bold text-warning m-0">Đang tải thông tin...</h3>
+                    <div id="display_rule_box" class="mt-2 text-white-50 small">
+                        <i class="fa-solid fa-circle-info text-warning me-1"></i><span id="display_rule_text">Đang tải...</span>
+                    </div>
+                </div>
+                <div id="waiting_summary_container" class="p-3 text-center waiting-summary-box mb-3" style="display: none;">
+                    <h5 class="text-success fw-bold mb-1"><i class="fa-solid fa-circle-check fa-bounce me-2"></i>ĐÃ HOÀN THÀNH LƯỢT QUAY CUỐI CÙNG!</h5>
+                    <p class="text-white-50 m-0 small">Hệ thống đang tiến hành tổng hợp dữ liệu và lập bảng phân công...</p>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-2 px-2">
+                    <span class="fw-bold text-white-50"><i class="fa-solid fa-chart-line me-1"></i>Trạng thái tiến độ</span>
+                    <span id="spin_progress" class="badge bg-warning text-dark fw-bold fs-6">0/0 Người</span>
+                </div>
+                
+                <div class="card-body pt-2">
+                    <div id="live_progress_container">
+                        <h5 class="text-info fw-bold mb-3"><i class="fa-solid fa-bolt fa-fade me-2"></i>Danh Sách Đã Bốc Số (Thời gian thực)</h5>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-dark-custom align-middle text-center">
+                                <thead>
+                                    <tr><th>Thành viên</th><th>Số bốc được</th><th>Thời gian</th></tr>
+                                </thead>
+                                <tbody id="live_table_body">
+                                    <tr><td colspan="3" class="text-muted py-3">Chưa có ai tiến hành bốc thăm.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div id="final_results_container" style="display: none; margin-top: 25px;" class="fade-in-smooth">
+                        <div class="d-flex justify-content-between align-items-center mb-3 border-top pt-3 border-secondary">
+                            <h4 class="text-success fw-bold m-0"><i class="fa-solid fa-circle-check me-2"></i>BẢNG PHÂN CÔNG NHIỆM VỤ CHÍNH THỨC</h4>
+                            <button id="btn_export_image" class="btn btn-sm btn-success fw-bold data-html2canvas-ignore"><i class="fa-solid fa-camera me-1"></i>Xuất ảnh kết quả</button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-dark-custom table-striped text-center align-middle">
+                                <thead>
+                                    <tr><th style="width: 10%">Hạng</th><th style="width: 25%">Họ tên</th><th style="width: 20%">Số quay được</th><th style="width: 45%">Nhiệm vụ</th></tr>
+                                </thead>
+                                <tbody id="final_table_body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- CẤU HÌNH SUPABASE ONLINE (Thay thông tin của bạn vào đây) ---
+    const SUPABASE_URL = "https://lawxwalbpxmgzeeuoara.supabase.co"; 
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxhd3h3YWxicHhtZ3plZXVvYXJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4MDk2ODgsImV4cCI6MjA5NjM4NTY4OH0.DzliXe_co1vy_haR9uGxKabIGCIr5_qfi9Jt1HOGSwo";
+    const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const SESSION_ID = "main_session"; // ID cố định cho phiên bốc thăm
+
+    // Trạng thái cục bộ lưu trữ dữ liệu đồng bộ
+    let globalState = {
+        session_name: "Phiên bốc thăm mới",
+        display_rule: "Bốc ngẫu nhiên số từ 1~100",
+        sort_mode: "asc",
+        tasks: [],
+        max_count: 0,
+        current_count: 0,
+        live_results: [],
+        final_results: [],
+        finished: false,
+        spinning_name: null,
+        current_spin_result: 0,
+        spin_remaining_ms: 0
+    };
+
+    let is_local_animating = false;
+    let local_interval_id = null;
+    let is_delay_active = false; 
+    let tao_la_nguoi_quay = false;
+    let local_has_spun = false;
+
+    // Kiểm tra quyền Admin dựa trên URL (Ví dụ: link.html?admin=true)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('admin') === 'true') {
+        document.getElementById('admin_panel').style.display = 'block';
+    }
+
+    // Khởi tạo hoặc tải dữ liệu từ Supabase Cloud
+    async function initFirebaseState() {
+        let { data, error } = await supabase.from('draw_sessions').select('state').eq('id', SESSION_ID).single();
+        if (data) {
+            globalState = data.state;
+            updateUI(globalState);
+            fillAdminForm();
+        } else {
+            await supabase.from('draw_sessions').insert([{ id: SESSION_ID, state: globalState }]);
+        }
+    }
+
+    // Lắng nghe thay đổi dữ liệu thời gian thực từ Cloud (Realtime)
+    supabase.channel('custom-filter-channel')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'draw_sessions', filter: `id=eq.${SESSION_ID}` }, payload => {
+        globalState = payload.new.state;
+        updateUI(globalState);
+    }).subscribe();
+
+    async function saveStateToCloud() {
+        await supabase.from('draw_sessions').update({ state: globalState }).eq('id', SESSION_ID);
+    }
+
+    function fillAdminForm() {
+        if(document.getElementById("session_name")) {
+            document.getElementById("session_name").value = globalState.session_name || "";
+            document.getElementById("display_rule_input").value = globalState.display_rule || "";
+            document.getElementById("sort_mode").value = globalState.sort_mode || "asc";
+            document.getElementById("tasks").value = globalState.tasks ? globalState.tasks.join("\n") : "";
+        }
+    }
+
+    function checkDeviceLockStatus(hasSpunFromServer) {
+        const btnSpin = document.getElementById("btn_spin");
+        if (hasSpunFromServer === true || local_has_spun) {
+            btnSpin.disabled = true;
+            btnSpin.innerText = "BẠN ĐÃ QUAY SỐ RỒI";
+            btnSpin.className = "btn btn-secondary btn-lg w-100 py-3 fw-bold";
+        } else {
+            if (!is_local_animating) {
+                btnSpin.disabled = false;
+                btnSpin.innerText = "BẤM ĐỂ QUAY SỐ";
+                btnSpin.className = "btn btn-yellow btn-lg w-100 py-3 fw-bold";
+            }
+        }
+    }
+
+    function updateUI(state) {
+        document.getElementById("display_session_name").innerText = state.session_name || "Chưa thiết lập tên phiên bốc thăm";
+        document.getElementById("display_rule_text").innerText = state.display_rule || "Chưa thiết lập cách thức";
+        document.getElementById("spin_progress").innerText = `${state.current_count}/${state.max_count} Người`;
+        
+        let current_input_name = document.getElementById("user_name").value.trim();
+
+        if (state.live_results && state.live_results.length > 0) {
+            let liveHtml = "";
+            state.live_results.forEach(item => {
+                let displayValue = (item.number === "SHOW_WAITING") 
+                    ? `<span class="badge bg-secondary px-3 text-white"><i class="fa-solid fa-hourglass-start fa-spin me-1"></i> Đang quay...</span>`
+                    : `<span class="badge bg-warning text-dark fw-bold fs-6 px-3">${item.number}</span>`;
+                
+                liveHtml += `<tr class="live-row">
+                    <td class="fw-bold text-start ps-4 text-white"><i class="fa-solid fa-user me-2 text-secondary"></i>${item.name}</td>
+                    <td>${displayValue}</td>
+                    <td class="text-white-50 small">${item.time}</td>
+                </tr>`;
+            });
+            document.getElementById("live_table_body").innerHTML = liveHtml;
+        } else {
+            document.getElementById("live_table_body").innerHTML = `<tr><td colspan="3" class="text-muted py-3">Chưa có ai tiến hành bốc thăm.</td></tr>`;
+        }
+
+        if (is_local_animating) {
+            // Đang chạy hiệu ứng cuộn số ngẫu nhiên cục bộ
+        } else if (state.spinning_name) {
+            is_local_animating = true;
+            if(local_interval_id) clearInterval(local_interval_id);
+            
+            local_interval_id = setInterval(() => {
+                document.getElementById("lucky_number").innerText = Math.floor(Math.random() * 100) + 1;
+            }, 50);
+
+            setTimeout(async () => {
+                clearInterval(local_interval_id);
+                is_local_animating = false;
+                
+                if (tao_la_nguoi_quay) {
+                    document.getElementById("lucky_number").innerText = state.current_spin_result;
+                } else {
+                    document.getElementById("lucky_number").innerText = "--";
+                }
+            }, 2000);
+        } else {
+            if (state.finished) {
+                let my_saved_record = state.live_results ? state.live_results.find(item => item.name === current_input_name) : null;
+                if (tao_la_nguoi_quay && state.current_spin_result > 0) {
+                    document.getElementById("lucky_number").innerText = state.current_spin_result;
+                } else if (my_saved_record && my_saved_record.number !== "SHOW_WAITING") {
+                    document.getElementById("lucky_number").innerText = my_saved_record.number;
+                } else {
+                    document.getElementById("lucky_number").innerText = "--";
+                }
+            } else {
+                if (!tao_la_nguoi_quay) document.getElementById("lucky_number").innerText = "--"; 
+            }
+        }
+
+        if (state.finished && !state.spinning_name && !is_local_animating) {
+            if (!is_delay_active) {
+                is_delay_active = true;
+                document.getElementById("live_progress_container").style.display = "block";
+                document.getElementById("waiting_summary_container").style.display = "block";
+                document.getElementById("final_results_container").style.display = "none";
+                
+                let html = "";
+                state.final_results.forEach(item => {
+                    html += `<tr>
+                        <td><span class="badge bg-primary">${item.rank}</span></td>
+                        <td class="fw-bold">${item.name}</td>
+                        <td class="text-warning fw-bold fs-5">${item.number}</td>
+                        <td class="text-start ps-3"><span class="badge bg-light text-dark fs-6 px-3 text-wrap text-break text-start">${item.task}</span></td>
+                    </tr>`;
+                });
+                document.getElementById("final_table_body").innerHTML = html;
+                setTimeout(() => {
+                    document.getElementById("waiting_summary_container").style.display = "none";
+                    document.getElementById("final_results_container").style.display = "block";
+                }, 3500); 
+            }
+        } else if (!state.finished) {
+            is_delay_active = false; 
+            document.getElementById("live_progress_container").style.display = "block";
+            document.getElementById("waiting_summary_container").style.display = "none";
+            document.getElementById("final_results_container").style.display = "none";
+        }
+        
+        let am_i_in_list = state.live_results.some(item => item.name === current_input_name && current_input_name !== "");
+        checkDeviceLockStatus(am_i_in_list);
+    }
+
+    // Logic nút Lưu cấu hình của Admin
+    if (document.getElementById("btn_save")) {
+        document.getElementById("btn_save").addEventListener("click", async function() {
+            const tasksText = document.getElementById("tasks").value;
+            const tasksArray = tasksText.split(/\r?\n/).map(t => t.trim()).filter(t => t !== "");
+            
+            globalState.session_name = document.getElementById("session_name").value;
+            globalState.display_rule = document.getElementById("display_rule_input").value;
+            globalState.sort_mode = document.getElementById("sort_mode").value;
+            globalState.tasks = tasksArray;
+            globalState.max_count = tasksArray.length;
+            globalState.current_count = 0;
+            globalState.live_results = [];
+            globalState.final_results = [];
+            globalState.finished = false;
+            
+            await saveStateToCloud();
+            alert("Lưu và tạo phiên bốc thăm mới thành công!");
+        });
+
+        document.getElementById("btn_reset").addEventListener("click", async function() {
+            if(confirm("Xóa toàn bộ dữ liệu phiên cũ để làm phiên bốc thăm mới?")) {
+                globalState.session_name = "";
+                globalState.display_rule = "";
+                globalState.sort_mode = "asc";
+                globalState.tasks = [];
+                globalState.max_count = 0;
+                globalState.current_count = 0;
+                globalState.live_results = [];
+                globalState.final_results = [];
+                globalState.finished = false;
+                globalState.spinning_name = null;
+                globalState.current_spin_result = 0;
+                
+                is_delay_active = false;
+                tao_la_nguoi_quay = false; 
+                local_has_spun = false;
+                document.getElementById("lucky_number").innerText = "--";
+                document.getElementById("user_name").value = "";
+                fillAdminForm();
+                checkDeviceLockStatus(false);
+                await saveStateToCloud();
+            }
+        });
+    }
+
+    // Logic Bấm Quay Số của thành viên (Xử lý trực tiếp client-side đồng bộ lên Cloud)
+    document.getElementById("btn_spin").addEventListener("click", async function() {
+        if(is_local_animating || globalState.finished) return;
+        
+        const name = document.getElementById("user_name").value.trim();
+        if(!name) { alert("Vui lòng điền họ tên chính xác trước khi bấm quay!"); return; }
+        
+        if (globalState.live_results.some(item => item.name === name)) {
+            alert("Tên này đã tiến hành quay số rồi!");
+            return;
+        }
+        if (globalState.current_count >= globalState.max_count) {
+            alert("Đã đủ số lượng người quay cho các nhiệm vụ này!");
+            return;
+        }
+
+        tao_la_nguoi_quay = true;
+        local_has_spun = true;
+        checkDeviceLockStatus(true);
+
+        // Tạo số ngẫu nhiên đảm bảo không trùng trong phiên
+        let randomNumber;
+        let existingNumbers = globalState.live_results.map(r => r.number);
+        do {
+            randomNumber = Math.floor(Math.random() * 100) + 1;
+        } while (existingNumbers.includes(randomNumber));
+
+        // Trạng thái bắt đầu quay (hiển thị hiệu ứng cho toàn mạng)
+        globalState.spinning_name = name;
+        globalState.current_spin_result = randomNumber;
+        globalState.live_results.push({
+            name: name,
+            number: "SHOW_WAITING",
+            time: new Date().toLocaleTimeString('vi-VN')
+        });
+        await saveStateToCloud();
+
+        // Giả lập hiệu ứng chạy 2 giây đồng bộ giống code gốc
+        setTimeout(async () => {
+            let targetUser = globalState.live_results.find(item => item.name === name);
+            if (targetUser) targetUser.number = randomNumber;
+            
+            globalState.spinning_name = null;
+            globalState.current_count += 1;
+
+            // Nếu đủ người thì tính toán bảng phân công chính thức ngay lập tức
+            if (globalState.current_count >= globalState.max_count) {
+                globalState.finished = true;
+                
+                // Sao chép danh sách để sắp xếp dựa trên cấu hình xếp hạng
+                let sortedResults = [...globalState.live_results];
+                if (globalState.sort_mode === "asc") {
+                    sortedResults.sort((a, b) => a.number - b.number);
+                } else {
+                    sortedResults.sort((a, b) => b.number - a.number);
+                }
+
+                globalState.final_results = sortedResults.map((item, index) => {
+                    return {
+                        rank: index + 1,
+                        name: item.name,
+                        number: item.number,
+                        task: globalState.tasks[index] || "Nhiệm vụ phát sinh"
+                    };
+                });
+            }
+
+            await saveStateToCloud();
+        }, 2000);
+    });
+
+    // Xuất ảnh kết quả
+    document.getElementById("btn_export_image").addEventListener("click", function() {
+        const target = document.getElementById("capture_area");
+        html2canvas(target, { 
+            backgroundColor: "#3d4246",
+            ignoreElements: function(element) {
+                if(element.id === 'btn_export_image') return true;
+            }
+        }).then(canvas => {
+            const link = document.createElement("a");
+            const sessionTitle = document.getElementById("display_session_name").innerText.replace(/[^a-zA-Z0-9 Tiếng Việt]/g, "_");
+            link.download = `Ket_Qua_${sessionTitle}_${new Date().toISOString().slice(0,10)}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+    });
+
+    // Chạy khởi tạo dữ liệu ban đầu
+    initFirebaseState();
+</script>
+</body>
+</html>
