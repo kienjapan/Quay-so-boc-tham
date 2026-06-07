@@ -150,9 +150,9 @@
     const SUPABASE_URL = "https://lawxwalbpxmgzeeuoara.supabase.co"; 
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxhd3h3YWxicHhtZ3plZXVvYXJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4MDk2ODgsImV4cCI6MjA5NjM4NTY4OH0.DzliXe_co1vy_haR9uGxKabIGCIr5_qfi9Jt1HOGSwo";
     const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    const SESSION_ID = "main_session"; // ID cố định cho phiên bốc thăm
+    const SESSION_ID = "main_session"; 
 
-    // Trạng thái cục bộ lưu trữ dữ liệu đồng bộ
+    // Trạng thái mặc định ban đầu
     let globalState = {
         session_name: "Phiên bốc thăm mới",
         display_rule: "Bốc ngẫu nhiên số từ 1~100",
@@ -164,8 +164,7 @@
         final_results: [],
         finished: false,
         spinning_name: null,
-        current_spin_result: 0,
-        spin_remaining_ms: 0
+        current_spin_result: 0
     };
 
     let is_local_animating = false;
@@ -174,29 +173,38 @@
     let tao_la_nguoi_quay = false;
     let local_has_spun = false;
 
-    // Kiểm tra quyền Admin dựa trên URL (Ví dụ: link.html?admin=true)
+    // Hiển thị panel Admin nếu URL chứa ?admin=true
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('admin') === 'true') {
         document.getElementById('admin_panel').style.display = 'block';
     }
 
-    // Khởi tạo hoặc tải dữ liệu từ Supabase Cloud
+    // KHỞI TẠO DỮ LIỆU CHUẨN KHÔNG BỊ SẬP KHI BẢNG TRỐNG
     async function initFirebaseState() {
-        let { data, error } = await supabase.from('draw_sessions').select('state').eq('id', SESSION_ID).single();
-        if (data) {
-            globalState = data.state;
+        try {
+            // Sử dụng maybeSingle() để không sinh lỗi Crash Script nếu Supabase chưa có dữ liệu dòng này
+            let { data, error } = await supabase.from('draw_sessions').select('state').eq('id', SESSION_ID).maybeSingle();
+            
+            if (data && data.state) {
+                globalState = data.state;
+            } else {
+                // Khởi tạo dòng đầu tiên lên Supabase Cloud nếu dữ liệu trống hoàn toàn
+                await supabase.from('draw_sessions').insert([{ id: SESSION_ID, state: globalState }]);
+            }
             updateUI(globalState);
             fillAdminForm();
-        } else {
-            await supabase.from('draw_sessions').insert([{ id: SESSION_ID, state: globalState }]);
+        } catch (err) {
+            console.error("Lỗi khởi tạo:", err);
         }
     }
 
-    // Lắng nghe thay đổi dữ liệu thời gian thực từ Cloud (Realtime)
-    supabase.channel('custom-filter-channel')
+    // Lắng nghe thay đổi dữ liệu thời gian thực từ Supabase Realtime
+    supabase.channel('draw-realtime-channel')
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'draw_sessions', filter: `id=eq.${SESSION_ID}` }, payload => {
-        globalState = payload.new.state;
-        updateUI(globalState);
+        if (payload.new && payload.new.state) {
+            globalState = payload.new.state;
+            updateUI(globalState);
+        }
     }).subscribe();
 
     async function saveStateToCloud() {
@@ -327,7 +335,6 @@
         checkDeviceLockStatus(am_i_in_list);
     }
 
-    // Thêm hàm lắng nghe sự kiện gõ chữ để tự động khóa/mở nút quay theo thời gian thực
     document.getElementById("user_name").addEventListener("input", function() {
         let name = this.value.trim();
         let am_i_in_list = globalState.live_results.some(item => item.name === name && name !== "");
@@ -382,7 +389,7 @@
         });
     }
 
-    // Logic Bấm Quay Số của thành viên (Đã xử lý triệt để lỗi ghi đè dữ liệu ngầm)
+    // Logic Bấm Quay Số 
     document.getElementById("btn_spin").addEventListener("click", async function() {
         if(is_local_animating || globalState.finished) return;
         
@@ -402,14 +409,12 @@
         local_has_spun = true;
         checkDeviceLockStatus(true);
 
-        // Tạo số ngẫu nhiên đảm bảo không trùng trong phiên
         let randomNumber;
         let existingNumbers = globalState.live_results.map(r => r.number);
         do {
             randomNumber = Math.floor(Math.random() * 100) + 1;
         } while (existingNumbers.includes(randomNumber));
 
-        // Trạng thái bắt đầu quay (hiển thị hiệu ứng cho toàn mạng)
         globalState.spinning_name = name;
         globalState.current_spin_result = randomNumber;
         globalState.live_results.push({
@@ -419,10 +424,9 @@
         });
         await saveStateToCloud();
 
-        // Đợi 2 giây chạy hiệu ứng, sau đó kéo dữ liệu mới nhất trên mây về cập nhật để tránh xung đột
         setTimeout(async () => {
-            let { data } = await supabase.from('draw_sessions').select('state').eq('id', SESSION_ID).single();
-            let freshState = data ? data.state : globalState;
+            let { data } = await supabase.from('draw_sessions').select('state').eq('id', SESSION_ID).maybeSingle();
+            let freshState = (data && data.state) ? data.state : globalState;
 
             let targetUser = freshState.live_results.find(item => item.name === name);
             if (targetUser) targetUser.number = randomNumber;
@@ -430,7 +434,6 @@
             freshState.spinning_name = null;
             freshState.current_count += 1;
 
-            // Nếu đủ người thì tính toán bảng phân công chính thức ngay lập tức
             if (freshState.current_count >= freshState.max_count) {
                 freshState.finished = true;
                 
